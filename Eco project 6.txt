@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Green Council Energy Logger</title>
+
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
+<script src="chart.js"></script>
+
+<style>
+*{
+    margin:0;
+    padding:0;
+    box-sizing:border-box;
+    font-family:'Poppins',sans-serif;
+}
+
+body{
+    min-height:100vh;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    background:linear-gradient(135deg,#1e3c72,#2a5298);
+}
+
+.container{
+    width:420px;
+    padding:35px;
+    border-radius:20px;
+    backdrop-filter:blur(15px);
+    background:rgba(255,255,255,0.1);
+    box-shadow:0 8px 32px rgba(0,0,0,0.3);
+    color:white;
+}
+
+h2{
+    text-align:center;
+    margin-bottom:20px;
+}
+
+input{
+    width:100%;
+    padding:12px;
+    margin:8px 0;
+    border:none;
+    border-radius:10px;
+    background:rgba(255,255,255,0.2);
+    color:white;
+}
+
+input::placeholder{
+    color:#ddd;
+}
+
+button{
+    width:100%;
+    padding:12px;
+    margin-top:12px;
+    border:none;
+    border-radius:10px;
+    background:#00c9a7;
+    color:white;
+    font-weight:600;
+    cursor:pointer;
+    transition:0.3s;
+}
+
+button:hover{
+    background:#00a88b;
+    transform:scale(1.03);
+}
+
+.hidden{display:none;}
+
+.error{
+    font-size:13px;
+    color:#ff8080;
+    margin-top:5px;
+}
+
+.result{
+    margin-top:10px;
+    font-size:14px;
+    color:#b6ffea;
+}
+
+canvas{
+    margin-top:20px;
+    background:white;
+    border-radius:10px;
+    padding:10px;
+}
+</style>
+</head>
+<body>
+
+<div class="container">
+
+<!-- LOGIN -->
+<div id="loginForm">
+<h2>ECO PROJECT</h2>
+
+<input type="text" id="username" placeholder="User ID">
+<input type="password" id="password" placeholder="Password">
+
+<p class="error" id="loginError"></p>
+<button onclick="validateLogin()">Enter</button>
+</div>
+
+<!-- ENERGY FORM -->
+<div id="energyForm" class="hidden">
+<h2>Weekly Energy Usage</h2>
+
+<input type="number" id="units" placeholder="Units Used (kWh)">
+<input type="text" id="fuel" placeholder="Fuel Type (Electricity/Gas)">
+<input type="date" id="date">
+
+<label>
+<input type="checkbox" id="smartMeter"> Smart Meter?
+</label>
+
+<p class="error" id="formError"></p>
+<button onclick="submitData()">Submit Entry</button>
+
+<p class="result" id="carbonResult"></p>
+
+<canvas id="energyChart"></canvas>
+
+<button onclick="logout()">Logout</button>
+
+</div>
+
+</div>
+
+<script>
+let energyData = JSON.parse(localStorage.getItem("energyData")) || [];
+let chart;
+
+const loginForm = document.getElementById("loginForm");
+const energyForm = document.getElementById("energyForm");
+const loginError = document.getElementById("loginError");
+const formError = document.getElementById("formError");
+const carbonResult = document.getElementById("carbonResult");
+
+const username = document.getElementById("username");
+const password = document.getElementById("password");
+const units = document.getElementById("units");
+const fuel = document.getElementById("fuel");
+const date = document.getElementById("date");
+const smartMeter = document.getElementById("smartMeter");
+
+/* AUTO LOGIN IF SAVED */
+window.onload = function(){
+  const savedUser = localStorage.getItem("savedUsername");
+  const savedPass = localStorage.getItem("savedPassword");
+
+  if(savedUser && savedPass){
+    username.value = savedUser;
+    password.value = savedPass;
+    loginForm.classList.add("hidden");
+    energyForm.classList.remove("hidden");
+    renderChart();
+  }
+};
+
+/* LOGIN VALIDATION */
+function validateLogin(){
+  const user = username.value.trim();
+  const pass = password.value.trim();
+  const userIdPattern = /^[A-Za-z0-9]{7}$/;
+
+  if(user === "" || pass === ""){
+    loginError.innerText = "Please fill in all fields.";
+    return;
+  }
+
+  if(!userIdPattern.test(user)){
+    loginError.innerText = "User ID must be exactly 7 letters (A–Z & 0-9 only).";
+    return;
+  }
+
+  if(pass.length < 8 || pass.length > 64){
+    loginError.innerText = "Password must be between 8 and 64 characters.";
+    return;
+  }
+
+  loginError.innerText = "";
+
+  /* SAVE LOGIN */
+  localStorage.setItem("savedUsername", user);
+  localStorage.setItem("savedPassword", pass);
+
+  loginForm.classList.add("hidden");
+  energyForm.classList.remove("hidden");
+  renderChart();
+}
+
+/* LOGOUT */
+function logout(){
+  localStorage.removeItem("savedUsername");
+  localStorage.removeItem("savedPassword");
+
+  energyForm.classList.add("hidden");
+  loginForm.classList.remove("hidden");
+
+  username.value = "";
+  password.value = "";
+}
+
+/* CARBON CALCULATION */
+function calculateCarbon(units){
+  return (units * 0.233).toFixed(2);
+}
+
+function normalizeFuel(input){
+  const v = input.trim().toLowerCase();
+  if(v === "gas") return "Gas";
+  if(v === "electricity") return "Electricity";
+  return null;
+}
+
+/* SUBMIT ENERGY DATA */
+function submitData(){
+  const unitsVal = units.value;
+  const fuelRaw = fuel.value;
+  const dateVal = date.value;
+  const smart = smartMeter.checked;
+
+  if(unitsVal === "" || fuelRaw === "" || dateVal === ""){
+    formError.innerText = "All fields are required.";
+    return;
+  }
+
+  if(isNaN(unitsVal) || Number(unitsVal) <= 0){
+    formError.innerText = "Units must be positive.";
+    return;
+  }
+
+  const fuelVal = normalizeFuel(fuelRaw);
+  if(!fuelVal){
+    formError.innerText = 'Fuel must be "Gas" or "Electricity".';
+    return;
+  }
+
+  formError.innerText = "";
+
+  const carbon = calculateCarbon(Number(unitsVal));
+
+  const entry = {
+    units: Number(unitsVal),
+    fuel: fuelVal,
+    date: dateVal,
+    smart: smart,
+    carbon: carbon
+  };
+
+  energyData.push(entry);
+  localStorage.setItem("energyData", JSON.stringify(energyData));
+
+  carbonResult.innerText =
+    "Estimated Carbon Footprint: " + carbon + " kg CO₂";
+
+  renderChart();
+
+  units.value = "";
+  fuel.value = "";
+  date.value = "";
+  smartMeter.checked = false;
+}
+
+/* RENDER CHART */
+function renderChart(){
+  const sorted = [...energyData].sort((a,b) => a.date.localeCompare(b.date));
+  const labels = [...new Set(sorted.map(e => e.date))];
+
+  const gasByDate = {};
+  const elecByDate = {};
+
+  for(const e of sorted){
+    if(e.fuel === "Gas") gasByDate[e.date] = e.units;
+    if(e.fuel === "Electricity") elecByDate[e.date] = e.units;
+  }
+
+  const gasValues = labels.map(d => gasByDate[d] ?? null);
+  const elecValues = labels.map(d => elecByDate[d] ?? null);
+
+  if(chart) chart.destroy();
+
+  chart = new Chart(document.getElementById("energyChart"), {
+    type: "line",
+    data: {
+      labels: labels,
+      datasets: [
+        {
+          label: "Electricity (kWh)",
+          data: elecValues,
+          borderColor: "#00c9a7",
+          backgroundColor: "rgba(0,201,167,0.2)",
+          tension: 0.3
+        },
+        {
+          label: "Gas (kWh)",
+          data: gasValues,
+          borderColor: "#ff8c42",
+          backgroundColor: "rgba(255,140,66,0.2)",
+          tension: 0.3
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      scales: {
+        y: { beginAtZero: true }
+      }
+    }
+  });
+}
+</script>
+
+</body>
+</html>
