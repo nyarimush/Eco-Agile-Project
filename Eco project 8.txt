@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Eco Track Viewer</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+body{
+  font-family:Arial;
+  background:#1e3c72;
+  color:white;
+  text-align:center;
+  padding:30px;
+}
+
+input,button{
+  padding:10px;
+  margin:10px;
+  border-radius:8px;
+  border:none;
+}
+
+button{
+  background:#00c9a7;
+  color:white;
+  cursor:pointer;
+}
+
+canvas{
+  background:white;
+  border-radius:10px;
+  margin-top:20px;
+}
+</style>
+</head>
+<body>
+
+<h2>Eco Track Energy Search</h2>
+
+<input type="file" id="csvFile" accept=".csv">
+<br>
+<input type="text" id="searchUser" placeholder="Enter UserID (e.g. USER010)">
+<button onclick="searchUser()">Search</button>
+
+<p id="message"></p>
+
+<canvas id="energyChart"></canvas>
+
+<script>
+
+let allData = [];
+let chart;
+
+/* LOAD CSV */
+document.getElementById("csvFile").addEventListener("change", function(event){
+
+  const file = event.target.files[0];
+  if(!file) return;
+
+  const reader = new FileReader();
+
+  reader.onload = function(e){
+    const text = e.target.result;
+    parseCSV(text);
+  };
+
+  reader.readAsText(file);
+});
+
+
+/* PARSE & CLEAN CSV */
+function parseCSV(text){
+
+  const rows = text.split("\n");
+  const headers = rows[0].split(",");
+
+  allData = [];
+
+  for(let i=1;i<rows.length;i++){
+
+    const cols = rows[i].split(",");
+    if(cols.length < 5) continue;
+
+    let userID = cols[0]?.trim();
+    let date = cols[1]?.trim();
+    let fuel = cols[2]?.trim();
+    let units = cols[3]?.trim();
+    let smart = cols[5]?.trim();
+
+    if(!userID || !date || !fuel || !units) continue;
+
+    units = Number(units);
+
+    if(isNaN(units) || units <= 0) continue;
+
+    fuel = fuel.toLowerCase();
+
+    if(fuel !== "gas" && fuel !== "electricity") continue;
+
+    allData.push({
+      userID:userID.toUpperCase(),
+      date:formatDate(date),
+      fuel:fuel.charAt(0).toUpperCase() + fuel.slice(1),
+      units:units,
+      smart:smart === "Yes"
+    });
+  }
+
+  document.getElementById("message").innerText =
+    "CSV Loaded Successfully. Total Clean Records: " + allData.length;
+}
+
+
+/* FORMAT DATE TO YYYY-MM-DD */
+function formatDate(dateStr){
+
+  const parts = dateStr.split("/");
+  if(parts.length !== 3) return dateStr;
+
+  let month = parts[0].padStart(2,"0");
+  let day = parts[1].padStart(2,"0");
+  let year = parts[2];
+
+  return `${year}-${month}-${day}`;
+}
+
+
+/* SEARCH USER */
+function searchUser(){
+
+  const userInput = document.getElementById("searchUser").value.trim().toUpperCase();
+
+  if(userInput === ""){
+    alert("Enter a UserID");
+    return;
+  }
+
+  const userData = allData.filter(d => d.userID === userInput);
+
+  if(userData.length === 0){
+    document.getElementById("message").innerText = "No data found for " + userInput;
+    if(chart) chart.destroy();
+    return;
+  }
+
+  document.getElementById("message").innerText =
+    "Found " + userData.length + " records for " + userInput;
+
+  renderChart(userData);
+}
+
+
+/* RENDER CHART */
+function renderChart(data){
+
+  const sorted = [...data].sort((a,b)=>a.date.localeCompare(b.date));
+  const labels = [...new Set(sorted.map(e=>e.date))];
+
+  const gasByDate = {};
+  const elecByDate = {};
+
+  for(const e of sorted){
+    if(e.fuel === "Gas") gasByDate[e.date] = e.units;
+    if(e.fuel === "Electricity") elecByDate[e.date] = e.units;
+  }
+
+  const gasValues = labels.map(d => gasByDate[d] ?? null);
+  const elecValues = labels.map(d => elecByDate[d] ?? null);
+
+  if(chart) chart.destroy();
+
+  chart = new Chart(document.getElementById("energyChart"), {
+    type:"line",
+    data:{
+      labels:labels,
+      datasets:[
+        {
+          label:"Electricity",
+          data:elecValues,
+          borderColor:"#00c9a7",
+          tension:0.3
+        },
+        {
+          label:"Gas",
+          data:gasValues,
+          borderColor:"#ff8c42",
+          tension:0.3
+        }
+      ]
+    },
+    options:{
+      responsive:true,
+      scales:{ y:{ beginAtZero:true } }
+    }
+  });
+}
+
+</script>
+
+</body>
+</html>
